@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>FafoshopPrintAgentNet</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- System.Drawing.Printing (GDI+) nằm trong shared framework
+         Microsoft.WindowsDesktop.App — bật UseWindowsForms để tham chiếu
+         framework đó, KHÔNG cần thêm NuGet package nào (đúng tinh thần "không
+         thêm dependency" của bản Java tham chiếu, fafoshop-print-agent). -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>

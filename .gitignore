@@ -1,0 +1,5 @@
+bin/
+obj/
+*.log
+agent.properties
+agent-last-print.png

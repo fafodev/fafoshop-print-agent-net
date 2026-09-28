@@ -33,6 +33,13 @@ internal sealed class PrinterService
     private const float HundredthsInchPerInch = 100f;
     private const float MmPerInch = 25.4f;
 
+    /// <summary>
+    /// Lề an toàn ĐỀU 2 bên cho đường bill (mm) — số đo thật cho queue
+    /// `Bill Print`/khổ giấy hiện tại (xem giải thích trong PrintPage). Dùng
+    /// chung cho cả tính vùng vẽ lẫn tính chiều cao trang (FitBillPageHeightToImage).
+    /// </summary>
+    private const float BillSafetyMarginMm = 2f;
+
     public sealed class PrinterNotFoundException : Exception
     {
         public PrinterNotFoundException(string printerName)
@@ -74,6 +81,11 @@ internal sealed class PrinterService
 
         using var document = new PrintDocument { PrinterSettings = printerSettings };
 
+        if (widthMmOverride is null)
+        {
+            FitBillPageHeightToImage(document, image, topMarginMm);
+        }
+
         document.PrintPage += (_, e) =>
         {
             // Khổ giấy MẶC ĐỊNH driver báo cáo cho queue này, đơn vị 1/100 inch
@@ -97,9 +109,8 @@ internal sealed class PrinterService
                 // cho queue `Bill Print`/khổ giấy hiện tại, cần đo lại nếu đổi
                 // máy/Stock khác (xem quy trình in-thử-đo-chỉnh đã dùng xuyên
                 // suốt docs/pos-in-nhan-san-pham.md).
-                const float billSafetyMarginMm = 2f;
-                widthMm = defaultWidthMm - billSafetyMarginMm * 2;
-                effectiveStartXMm = startXMm + billSafetyMarginMm;
+                widthMm = defaultWidthMm - BillSafetyMarginMm * 2;
+                effectiveStartXMm = startXMm + BillSafetyMarginMm;
             }
 
             float scaleMmPerPx = widthMm / image.Width;
@@ -137,6 +148,41 @@ internal sealed class PrinterService
         Console.WriteLine($"[print-agent] In:Start(RAW) printer={printerName} bytes={bytes.Length}");
         RawPrinter.SendBytesToPrinter(printerName, bytes);
         Console.WriteLine($"[print-agent] In:Success(RAW) printer={printerName}");
+    }
+
+    /// <summary>
+    /// Đường BILL: đặt chiều cao trang = đúng chiều cao ảnh bill thực tế,
+    /// thay vì giữ nguyên chiều cao Stock driver khai báo.
+    ///
+    /// <para><b>Vì sao bắt buộc</b>: queue bill dùng Stock "Long label" (giấy
+    /// cuộn liên tục) khai cao tới <b>1000mm</b> (đo 2026-09-28 qua
+    /// <c>Get-PrintConfiguration</c>: <c>MediaSizeHeight=1000000</c> µm).
+    /// Trước đây giữ nguyên trang 1000mm, chỉ vẽ ảnh ~150mm lên đầu trang →
+    /// driver Seagull (họ TSC) phải rasterize + gửi bitmap cả trang 1000mm
+    /// xuống máy in, máy in chờ nhận đủ rồi mới bắt đầu in — ghi nhận thực tế
+    /// tại quầy: hơn 10 giây từ lúc bấm thanh toán tới lúc bắt đầu in. Bản
+    /// Java tham chiếu đã tránh đúng lỗi này từ trước bằng cách tự tính chiều
+    /// cao theo ảnh (xem docs/pos-in-hoa-don.md mục 10 "Layout/canh chỉnh",
+    /// bước 7) — bản .NET bị sót khi port.</para>
+    ///
+    /// <para>Bề rộng giữ nguyên khổ driver báo cáo (không đổi cách canh ngang
+    /// full-bleed + lề an toàn ở PrintPage). Chiều cao làm tròn LÊN theo đơn
+    /// vị 1/100 inch để không cắt mất dòng cuối. KHÔNG áp dụng cho đường nhãn
+    /// (die-cut, khổ cố định theo Stock, driver định vị theo khe hở).</para>
+    /// </summary>
+    private static void FitBillPageHeightToImage(PrintDocument document, Image image, float topMarginMm)
+    {
+        PaperSize stockPaper = document.DefaultPageSettings.PaperSize;
+        float stockWidthMm = stockPaper.Width / HundredthsInchPerInch * MmPerInch;
+        float drawWidthMm = stockWidthMm - BillSafetyMarginMm * 2;
+        float imageHeightMm = image.Height * (drawWidthMm / image.Width);
+        int pageHeightHundredths = (int)Math.Ceiling(MmToHundredthsInch(topMarginMm + imageHeightMm));
+
+        document.DefaultPageSettings.PaperSize = new PaperSize("fafoshop-bill", stockPaper.Width, pageHeightHundredths);
+        document.DefaultPageSettings.Margins = new Margins(0, 0, 0, 0);
+
+        Console.WriteLine($"[print-agent] Bill:FitPage stock={stockPaper.PaperName} {stockPaper.Width}x{stockPaper.Height} " +
+            $"-> {stockPaper.Width}x{pageHeightHundredths} (1/100 inch)");
     }
 
     private static float MmToHundredthsInch(float mm) => mm / MmPerInch * HundredthsInchPerInch;
